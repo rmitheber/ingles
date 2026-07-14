@@ -11,9 +11,13 @@
   const USERS = [
     { name: 'Heber', avatar: '🧑‍💻' },
     { name: 'Elisa', avatar: '👩‍🎓' },
+    { name: 'Manuel', avatar: '👨‍🏫' },
+    { name: 'Lorena', avatar: '👩‍💼' },
     { name: 'Invitado', avatar: '🙋', label: 'Usuario invitado' },
   ];
-  function isGuest() { return currentUser === 'Invitado'; }
+  // Parejas de estudio para el modo Dúo
+  const PAIRS = { Heber: 'Elisa', Elisa: 'Heber', Manuel: 'Lorena', Lorena: 'Manuel' };
+  function isGuest() { return !PAIRS[currentUser]; }
   // Intervalos Leitner en días por caja (repetición espaciada)
   const SRS_INTERVALS = [0, 1, 2, 4, 8, 15, 30];
   const NEW_CARDS_PER_SESSION = 10;
@@ -52,7 +56,11 @@
   function addXP(p, amount) { p.xp += amount; touchStreak(p); }
 
   /* ---------- Compañeros: snapshot, mensajes y sincronización ---------- */
-  function partnerName() { return currentUser === 'Heber' ? 'Elisa' : 'Heber'; }
+  function partnerName() { return PAIRS[currentUser]; }
+  // Solo los mensajes de mi pareja de estudio
+  function pairMessages() {
+    return loadMessages().filter(m => m.from === currentUser || m.from === partnerName());
+  }
   // El buzón de mensajes es común a los dos perfiles del dispositivo
   function loadMessages() {
     try { return JSON.parse(localStorage.getItem('ingles_messages') || '[]'); }
@@ -85,7 +93,7 @@
       v: 1, user: currentUser, date: today(), xp: p.xp, streak: p.streak,
       lessons: p.lessons, placement: p.placement, srx: srx,
       words: Object.values(p.srs).filter(c => c.box >= 2).length,
-      messages: loadMessages().slice(-40).map(m => Object.assign({}, m, { text: String(m.text).slice(0, 600) })),
+      messages: pairMessages().slice(-40).map(m => Object.assign({}, m, { text: String(m.text).slice(0, 600) })),
     };
   }
   function expandSrx(srx) {
@@ -125,10 +133,12 @@
       saveMessages(mergeMessages(loadMessages(), snap.messages));
       saveProgress(p);
       alert('✔ Tu progreso se combinó correctamente.');
-    } else {
+    } else if (snap.user === partnerName()) {
       savePartner(snap);
       saveMessages(mergeMessages(loadMessages(), snap.messages));
       alert('✔ Recibiste la actualización de ' + snap.user + ': avance y mensajes al día.');
+    } else {
+      alert('Este enlace es de ' + snap.user + ', pero tu pareja de estudio es ' + (partnerName() || 'ninguna') + '. Solo tu pareja puede compartir contigo.');
     }
     go('duo'); route();
   }
@@ -152,14 +162,14 @@
   }
 
   function pendingForPartner() {
-    // retos que yo envié y el compañero aún no responde
-    const msgs = loadMessages();
+    // retos que yo envié y mi pareja de estudio aún no responde
+    const msgs = pairMessages();
     return msgs.filter(m => m.type === 'task' && m.from === currentUser &&
-      !msgs.some(r => r.ref === m.id && r.from !== currentUser)).length;
+      !msgs.some(r => r.ref === m.id && r.from === partnerName())).length;
   }
   function pendingForMe() {
-    const msgs = loadMessages();
-    return msgs.filter(m => m.type === 'task' && m.from !== currentUser &&
+    const msgs = pairMessages();
+    return msgs.filter(m => m.type === 'task' && m.from === partnerName() &&
       !msgs.some(r => r.ref === m.id && r.from === currentUser)).length;
   }
 
@@ -731,7 +741,7 @@
       setChrome('Dúo', 'duo');
       $screen.innerHTML = '';
       $screen.appendChild(el('<div class="card"><h2>👥 Modo Dúo</h2>' +
-        '<p class="muted">Esta sección es el espacio privado de <strong>Heber</strong> y <strong>Elisa</strong>: aquí se escriben mensajes en inglés, se mandan retos de escritura y cada uno ve el avance del otro.</p>' +
+        '<p class="muted">Esta sección es el espacio privado de las parejas de estudio (<strong>Heber–Elisa</strong> y <strong>Manuel–Lorena</strong>): aquí se escriben mensajes en inglés, se mandan retos de escritura y cada uno ve el avance del otro.</p>' +
         '<p class="muted" style="margin-top:.5rem">Como usuario invitado puedes probar todo lo demás: las lecciones, los ejercicios, el repaso de vocabulario y el examen de nivel. ¡Tu progreso también se guarda!</p></div>'));
       const b = el('<button class="btn">📚 Ir a las lecciones</button>');
       b.onclick = () => go('levels');
@@ -793,7 +803,7 @@
     const chatCard = el('<div class="card"><h2>💬 Mensajes y retos</h2></div>');
     const list = el('<div class="chat-list"></div>');
     chatCard.appendChild(list);
-    const allMsgs = loadMessages();
+    const allMsgs = pairMessages();
     const msgs = allMsgs.slice(-50);
     if (!msgs.length) {
       list.appendChild(el('<p class="muted small">Todavía no hay mensajes. Escríbele algo en inglés a ' + esc(partnerName()) + ' o mándale un reto de escritura. 📝</p>'));
