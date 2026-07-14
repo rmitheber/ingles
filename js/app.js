@@ -11,7 +11,9 @@
   const USERS = [
     { name: 'Heber', avatar: '🧑‍💻' },
     { name: 'Elisa', avatar: '👩‍🎓' },
+    { name: 'Invitado', avatar: '🙋', label: 'Usuario invitado' },
   ];
+  function isGuest() { return currentUser === 'Invitado'; }
   // Intervalos Leitner en días por caja (repetición espaciada)
   const SRS_INTERVALS = [0, 1, 2, 4, 8, 15, 30];
   const NEW_CARDS_PER_SESSION = 10;
@@ -255,7 +257,7 @@
     wrap.appendChild(el('<h1>Inglés A2 → B2</h1>'));
     wrap.appendChild(el('<p>Lecciones, ejercicios y repaso inteligente.<br>¿Quién va a estudiar hoy?</p>'));
     USERS.forEach(u => {
-      const b = el('<button class="profile-btn"><span class="avatar">' + u.avatar + '</span><span>' + u.name + '</span></button>');
+      const b = el('<button class="profile-btn"><span class="avatar">' + u.avatar + '</span><span>' + (u.label || u.name) + '</span></button>');
       b.onclick = () => {
         currentUser = u.name;
         localStorage.setItem('ingles_current_user', u.name);
@@ -292,13 +294,13 @@
       $screen.appendChild(b);
     }
 
-    const forMe = pendingForMe();
+    const forMe = isGuest() ? 0 : pendingForMe();
     if (forMe > 0) {
       const b = el('<div class="banner">✍️ ' + esc(partnerName()) + ' te envió retos por responder <span class="cnt">' + forMe + '</span></div>');
       b.onclick = () => go('duo');
       $screen.appendChild(b);
     }
-    const partner = loadPartner();
+    const partner = isGuest() ? null : loadPartner();
     if (partner) {
       const pDone = Object.values(partner.lessons || {}).filter(l => l.done).length;
       const b = el('<div class="banner" style="background:var(--primary-light);border-color:#c7d2fe">👥 ' + esc(partner.user) + ': ' + pDone + ' lecciones · ' + (partner.xp || 0) + ' XP <span class="cnt" style="background:var(--primary)">ver</span></div>');
@@ -725,6 +727,17 @@
   ];
 
   routes.duo = function () {
+    if (isGuest()) {
+      setChrome('Dúo', 'duo');
+      $screen.innerHTML = '';
+      $screen.appendChild(el('<div class="card"><h2>👥 Modo Dúo</h2>' +
+        '<p class="muted">Esta sección es el espacio privado de <strong>Heber</strong> y <strong>Elisa</strong>: aquí se escriben mensajes en inglés, se mandan retos de escritura y cada uno ve el avance del otro.</p>' +
+        '<p class="muted" style="margin-top:.5rem">Como usuario invitado puedes probar todo lo demás: las lecciones, los ejercicios, el repaso de vocabulario y el examen de nivel. ¡Tu progreso también se guarda!</p></div>'));
+      const b = el('<button class="btn">📚 Ir a las lecciones</button>');
+      b.onclick = () => go('levels');
+      $screen.appendChild(b);
+      return;
+    }
     setChrome('Dúo: ' + partnerName() + ' y tú', 'duo');
     const p = loadProgress();
     const partner = loadPartner();
