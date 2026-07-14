@@ -15,10 +15,12 @@ Aplicación web para aprender inglés del nivel A2 al B2 (marco CEFR), pensada p
 
 - **2 perfiles** (Heber y Elisa) con progreso independiente, guardado en el dispositivo (localStorage).
 - **Examen de nivel** de 12 preguntas que recomienda por dónde empezar.
-- **30 lecciones** de gramática (10 por nivel A2, B1 y B2) siguiendo el currículo CEFR, con teoría explicada en español, ejemplos con audio (pronunciación con voz del navegador) y consejos sobre errores típicos.
-- **~250 ejercicios** de 5 tipos: opción múltiple, completar huecos, ordenar frases, emparejar y traducir — todos con feedback inmediato que explica el porqué.
-- **150 tarjetas de vocabulario** por temas, con **repetición espaciada** (sistema Leitner): las palabras que fallas vuelven pronto, las que dominas se espacian hasta 30 días.
+- **34 lecciones**: 30 de gramática (10 por nivel A2, B1 y B2, currículo CEFR) + **4 académicas** (dar exposiciones, describir gráficas, comparar datos y cifras, opinar y argumentar), con teoría en español, ejemplos con audio y consejos sobre errores típicos.
+- **~280 ejercicios** de 5 tipos: opción múltiple, completar huecos, ordenar frases, emparejar y traducir — todos con feedback inmediato que explica el porqué.
+- **170 tarjetas de vocabulario** por temas, con **repetición espaciada** (sistema Leitner): las palabras que fallas vuelven pronto, las que dominas se espacian hasta 30 días.
+- **Modo Dúo 👥**: mensajes en inglés entre Heber y Elisa, retos de escritura con respuesta dentro de la app (+XP), y la vista del **avance del compañero** para ver si hizo su tarea. En el mismo dispositivo se actualiza solo; entre celulares distintos, con el botón «Compartir mi avance» se manda un enlace por WhatsApp que al abrirse sincroniza mensajes y progreso (sin cuentas ni servidores).
 - **Progreso y motivación**: racha diaria 🔥, puntos XP, porcentaje por nivel y estadísticas.
+- El mismo enlace de compartir sirve para **pasar tu propio progreso a otro dispositivo** (se combinan automáticamente).
 
 ## Método
 
@@ -40,7 +42,8 @@ js/app.js           Motor: navegación, ejercicios, SRS, progreso
 js/data/a2.js       10 lecciones nivel A2
 js/data/b1.js       10 lecciones nivel B1
 js/data/b2.js       10 lecciones nivel B2
-js/data/vocab.js    150 tarjetas de vocabulario
+js/data/acad.js     4 lecciones académicas (exposiciones y gráficas)
+js/data/vocab.js    170 tarjetas de vocabulario
 js/data/test.js     Examen de nivel
 manifest.json       Manifiesto PWA (añadir a pantalla de inicio)
 ```

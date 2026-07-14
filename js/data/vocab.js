@@ -184,6 +184,31 @@
       ['refuse', 'negarse', 'She refused to give up.'],
       ['succeed', 'tener éxito', 'If you work hard, you will succeed.'],
     ]],
+    /* ===== Académico ===== */
+    ['acad', 'Presentaciones', [
+      ['audience', 'público / audiencia', 'Look at your audience, not at the screen.'],
+      ['slide', 'diapositiva', 'The next slide shows the results.'],
+      ['outline', 'esquema / guion', 'Here is a brief outline of my talk.'],
+      ['handout', 'material impreso', 'There is a handout with the key data.'],
+      ['rehearse', 'ensayar', 'Rehearse your presentation out loud.'],
+      ['summarize', 'resumir', 'Let me summarize the main points.'],
+      ['highlight', 'destacar', 'I want to highlight two findings.'],
+      ['topic', 'tema', 'Our topic today is online education.'],
+      ['finding', 'hallazgo', 'The main finding was surprising.'],
+      ['source', 'fuente', 'Always cite your sources.'],
+    ]],
+    ['acad', 'Gráficas y datos', [
+      ['increase', 'aumento / aumentar', 'There was a sharp increase in sales.'],
+      ['decrease', 'disminución / disminuir', 'Costs decreased by 10%.'],
+      ['trend', 'tendencia', 'The overall trend is positive.'],
+      ['peak', 'punto máximo', 'Visits reached a peak in July.'],
+      ['average', 'promedio', 'The average score was 75.'],
+      ['rate', 'tasa / ritmo', 'The unemployment rate fell.'],
+      ['figure', 'cifra / figura', 'The figures show steady growth.'],
+      ['survey', 'encuesta', 'We conducted a survey of 500 people.'],
+      ['percentage', 'porcentaje', 'What percentage of users are new?'],
+      ['remain stable', 'mantenerse estable', 'Prices remained stable all year.'],
+    ]],
   ];
 
   const cards = [];

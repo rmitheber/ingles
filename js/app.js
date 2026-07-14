@@ -6,6 +6,7 @@
     { id: 'a2', name: 'A2 · Básico', desc: 'Situaciones cotidianas, pasado y futuro simple', data: () => window.DATA_A2 },
     { id: 'b1', name: 'B1 · Intermedio', desc: 'Condicionales, perfecto, voz pasiva, estilo indirecto', data: () => window.DATA_B1 },
     { id: 'b2', name: 'B2 · Intermedio alto', desc: 'Tiempos narrativos, especulación, relativas, conectores', data: () => window.DATA_B2 },
+    { id: 'acad', name: 'Académico · Exposiciones', desc: 'Presentaciones, describir gráficas, datos y argumentación', data: () => window.DATA_ACAD },
   ];
   const USERS = [
     { name: 'Heber', avatar: '🧑‍💻' },
@@ -27,7 +28,7 @@
 
   /* ---------- Progreso (localStorage por usuario) ---------- */
   function defaultProgress() {
-    return { xp: 0, streak: { last: null, count: 0 }, lessons: {}, srs: {}, placement: null, history: [] };
+    return { xp: 0, streak: { last: null, count: 0 }, lessons: {}, srs: {}, placement: null, history: [], messages: [] };
   }
   function loadProgress() {
     try {
@@ -47,6 +48,118 @@
     p.streak.last = t;
   }
   function addXP(p, amount) { p.xp += amount; touchStreak(p); }
+
+  /* ---------- Compañeros: snapshot, mensajes y sincronización ---------- */
+  function partnerName() { return currentUser === 'Heber' ? 'Elisa' : 'Heber'; }
+  // El buzón de mensajes es común a los dos perfiles del dispositivo
+  function loadMessages() {
+    try { return JSON.parse(localStorage.getItem('ingles_messages') || '[]'); }
+    catch (e) { return []; }
+  }
+  function saveMessages(list) { localStorage.setItem('ingles_messages', JSON.stringify(list.slice(-200))); }
+  function loadPartner() {
+    let imported = null, live = null;
+    try { const raw = localStorage.getItem('ingles_partner_' + currentUser); imported = raw ? JSON.parse(raw) : null; } catch (e) {}
+    try {
+      // si el compañero usa este mismo dispositivo, leemos su progreso directo
+      const raw = localStorage.getItem('ingles_progress_' + partnerName());
+      if (raw) {
+        const pp = Object.assign(defaultProgress(), JSON.parse(raw));
+        live = { user: partnerName(), date: pp.streak.last || '', xp: pp.xp, streak: pp.streak,
+          lessons: pp.lessons, placement: pp.placement,
+          words: Object.values(pp.srs).filter(c => c.box >= 2).length };
+      }
+    } catch (e) {}
+    if (live && imported) return (imported.date || '') > (live.date || '') ? imported : live;
+    return live || imported;
+  }
+  function savePartner(s) { localStorage.setItem('ingles_partner_' + currentUser, JSON.stringify(s)); }
+
+  function makeSnapshot(p) {
+    // srs compacto: índice de tarjeta → [caja, fecha]
+    const srx = {};
+    window.DATA_VOCAB.forEach((c, i) => { if (p.srs[c.id]) srx[i] = [p.srs[c.id].box, p.srs[c.id].due]; });
+    return {
+      v: 1, user: currentUser, date: today(), xp: p.xp, streak: p.streak,
+      lessons: p.lessons, placement: p.placement, srx: srx,
+      words: Object.values(p.srs).filter(c => c.box >= 2).length,
+      messages: loadMessages().slice(-40).map(m => Object.assign({}, m, { text: String(m.text).slice(0, 600) })),
+    };
+  }
+  function expandSrx(srx) {
+    const srs = {};
+    Object.entries(srx || {}).forEach(([i, v]) => {
+      const card = window.DATA_VOCAB[+i];
+      if (card) srs[card.id] = { box: v[0], due: v[1] };
+    });
+    return srs;
+  }
+  function encodeSync(obj) { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); }
+  function decodeSync(s) { return JSON.parse(decodeURIComponent(escape(atob(String(s).trim())))); }
+  function mergeMessages(a, b) {
+    const map = {};
+    (a || []).concat(b || []).forEach(m => { if (m && m.id) map[m.id] = m; });
+    return Object.values(map).sort((x, y) => (x.id < y.id ? -1 : 1));
+  }
+
+  function importSync(code) {
+    let snap;
+    try { snap = decodeSync(code); if (!snap || !snap.user) throw new Error('bad'); }
+    catch (e) { alert('Ese código o enlace no es válido. Pide a tu compañero que lo vuelva a compartir.'); go('duo'); route(); return; }
+    const p = loadProgress();
+    if (snap.user === currentUser) {
+      if (!confirm('Este enlace contiene TU propio progreso (de otro dispositivo). ¿Quieres combinarlo con el de aquí?')) { go('home'); route(); return; }
+      p.xp = Math.max(p.xp, snap.xp || 0);
+      if (snap.streak && (!p.streak.last || snap.streak.last >= p.streak.last)) p.streak = snap.streak;
+      Object.entries(snap.lessons || {}).forEach(([id, rec]) => {
+        const mine = p.lessons[id];
+        if (!mine || (rec.best || 0) > mine.best) p.lessons[id] = rec;
+      });
+      Object.entries(expandSrx(snap.srx)).forEach(([id, rec]) => {
+        const mine = p.srs[id];
+        if (!mine || rec.box > mine.box) p.srs[id] = rec;
+      });
+      if (!p.placement && snap.placement) p.placement = snap.placement;
+      saveMessages(mergeMessages(loadMessages(), snap.messages));
+      saveProgress(p);
+      alert('✔ Tu progreso se combinó correctamente.');
+    } else {
+      savePartner(snap);
+      saveMessages(mergeMessages(loadMessages(), snap.messages));
+      alert('✔ Recibiste la actualización de ' + snap.user + ': avance y mensajes al día.');
+    }
+    go('duo'); route();
+  }
+
+  function shareSnapshot() {
+    const p = loadProgress();
+    touchStreak(p); saveProgress(p);
+    const code = encodeSync(makeSnapshot(p));
+    const base = location.protocol.startsWith('http') ? location.href.split('#')[0] : 'https://rmitheber.github.io/ingles/';
+    const url = base + '#sync=' + code;
+    const text = '📚 Avance de ' + currentUser + ' en Inglés A2→B2. Abre este enlace para actualizar tu app:\n' + url;
+    if (navigator.share) {
+      navigator.share({ text: text }).catch(() => {});
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => alert('Enlace copiado ✔. Pégalo en WhatsApp y envíaselo a ' + partnerName() + '.'),
+        () => prompt('Copia este enlace y envíaselo a ' + partnerName() + ':', url));
+    } else {
+      prompt('Copia este enlace y envíaselo a ' + partnerName() + ':', url);
+    }
+  }
+
+  function pendingForPartner() {
+    // retos que yo envié y el compañero aún no responde
+    const msgs = loadMessages();
+    return msgs.filter(m => m.type === 'task' && m.from === currentUser &&
+      !msgs.some(r => r.ref === m.id && r.from !== currentUser)).length;
+  }
+  function pendingForMe() {
+    const msgs = loadMessages();
+    return msgs.filter(m => m.type === 'task' && m.from !== currentUser &&
+      !msgs.some(r => r.ref === m.id && r.from === currentUser)).length;
+  }
 
   /* ---------- Utilidades ---------- */
   function el(html) {
@@ -94,10 +207,19 @@
 
   /* ---------- Router ---------- */
   const routes = {};
+  let pendingSync = null;
   function go(hash) { location.hash = hash; }
   function route() {
+    const h = location.hash || '';
+    if (h.indexOf('#sync=') === 0) {
+      const code = h.slice(6);
+      history.replaceState(null, '', location.pathname + location.search);
+      if (!currentUser) { pendingSync = code; renderProfile(); return; }
+      importSync(code);
+      return;
+    }
     if (!currentUser) { renderProfile(); return; }
-    const parts = (location.hash || '#home').slice(1).split('/');
+    const parts = (h || '#home').slice(1).split('/');
     const name = parts[0] || 'home';
     (routes[name] || routes.home)(parts.slice(1));
   }
@@ -137,6 +259,7 @@
       b.onclick = () => {
         currentUser = u.name;
         localStorage.setItem('ingles_current_user', u.name);
+        if (pendingSync) { const c = pendingSync; pendingSync = null; importSync(c); return; }
         go('home'); route();
       };
       wrap.appendChild(b);
@@ -166,6 +289,20 @@
     if (due.total > 0) {
       const b = el('<div class="banner">🔁 Tienes tarjetas para repasar hoy <span class="cnt">' + due.total + '</span></div>');
       b.onclick = () => go('review');
+      $screen.appendChild(b);
+    }
+
+    const forMe = pendingForMe();
+    if (forMe > 0) {
+      const b = el('<div class="banner">✍️ ' + esc(partnerName()) + ' te envió retos por responder <span class="cnt">' + forMe + '</span></div>');
+      b.onclick = () => go('duo');
+      $screen.appendChild(b);
+    }
+    const partner = loadPartner();
+    if (partner) {
+      const pDone = Object.values(partner.lessons || {}).filter(l => l.done).length;
+      const b = el('<div class="banner" style="background:var(--primary-light);border-color:#c7d2fe">👥 ' + esc(partner.user) + ': ' + pDone + ' lecciones · ' + (partner.xp || 0) + ' XP <span class="cnt" style="background:var(--primary)">ver</span></div>');
+      b.onclick = () => go('duo');
       $screen.appendChild(b);
     }
 
@@ -571,6 +708,152 @@
       }
     }
     show();
+  };
+
+  /* ---------- Pantalla: Dúo (compañeros) ---------- */
+  const CHALLENGES = [
+    'Describe your day today in 5 sentences. (A2)',
+    'Write 3 sentences in the past simple about your weekend. (A2)',
+    'Write a short dialogue ordering food in a restaurant. (A2)',
+    'Describe the last film or series you watched. Did you like it? Why? (B1)',
+    'Give advice: I want to learn English faster. What should I do? Use "should". (B1)',
+    'Tell me about a place you have visited. Use the present perfect. (B1)',
+    'Is it better to live in a big city or a small town? Give your opinion with 2 arguments. (B2)',
+    'Describe an imaginary graph about your phone screen time this week: use rise, fall, remain stable. (Académico)',
+    'Write the introduction of a presentation about your favourite topic. (Académico)',
+    'If you had studied English as a child, how would your life be different? Mixed conditional. (B2)',
+  ];
+
+  routes.duo = function () {
+    setChrome('Dúo: ' + partnerName() + ' y tú', 'duo');
+    const p = loadProgress();
+    const partner = loadPartner();
+    $screen.innerHTML = '';
+
+    // --- Avance del compañero ---
+    const pc = el('<div class="card"></div>');
+    if (partner) {
+      const pDone = Object.values(partner.lessons || {}).filter(l => l.done).length;
+      const mine = Object.values(p.lessons).filter(l => l.done).length;
+      const waiting = pendingForPartner();
+      pc.appendChild(el('<h2>👀 Avance de ' + esc(partner.user) + '</h2>'));
+      pc.appendChild(el('<div class="muted small" style="margin-bottom:.5rem">Última actualización: ' + esc(partner.date || '—') + '</div>'));
+      pc.appendChild(el('<div class="stats-grid" style="margin-bottom:.5rem">' +
+        '<div class="stat-card"><div class="num">' + pDone + '</div><div class="lbl">Lecciones (tú: ' + mine + ')</div></div>' +
+        '<div class="stat-card"><div class="num">' + (partner.xp || 0) + '</div><div class="lbl">XP (tú: ' + p.xp + ')</div></div>' +
+        '<div class="stat-card"><div class="num">🔥 ' + ((partner.streak && partner.streak.count) || 0) + '</div><div class="lbl">Racha</div></div>' +
+        '<div class="stat-card"><div class="num">' + (partner.words || 0) + '</div><div class="lbl">Palabras</div></div>' +
+        '</div>'));
+      LEVELS.forEach(level => {
+        const lessons = level.data().lessons;
+        const done = lessons.filter(l => partner.lessons && partner.lessons[l.id] && partner.lessons[l.id].done).length;
+        const pct = Math.round(done / lessons.length * 100);
+        pc.appendChild(el('<div class="small" style="margin-top:.3rem">' + esc(level.name) + ' — ' + done + '/' + lessons.length +
+          '<div class="progressbar"><div style="width:' + pct + '%"></div></div></div>'));
+      });
+      if (waiting > 0) pc.appendChild(el('<div class="tipbox" style="margin-top:.6rem">⏳ ' + esc(partner.user) + ' tiene <strong>' + waiting + ' reto(s) sin responder</strong>. ¡Recuérdaselo!</div>'));
+      const lastSeen = (partner.streak && partner.streak.last) || null;
+      if (lastSeen && lastSeen < new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10)) {
+        pc.appendChild(el('<div class="tipbox">😴 Su última actividad fue el ' + esc(lastSeen) + '. ¡Mándale un mensaje para animarle!</div>'));
+      }
+    } else {
+      pc.appendChild(el('<h2>👀 Avance de ' + esc(partnerName()) + '</h2>'));
+      pc.appendChild(el('<p class="muted">Aún no tienes datos de ' + esc(partnerName()) + '. Pídele que toque «Compartir mi avance» en su celular y te mande el enlace; al abrirlo aquí, verás su progreso y sus mensajes.</p>'));
+    }
+    $screen.appendChild(pc);
+
+    // --- Botones de sincronización ---
+    const share = el('<button class="btn green">📤 Compartir mi avance con ' + esc(partnerName()) + '</button>');
+    share.onclick = shareSnapshot;
+    $screen.appendChild(share);
+    const paste = el('<button class="btn ghost">📥 Recibir avance (pegar enlace o código)</button>');
+    paste.onclick = () => {
+      const v = prompt('Pega aquí el enlace o código que te compartió ' + partnerName() + ':');
+      if (!v) return;
+      const idx = v.indexOf('#sync=');
+      importSync(idx >= 0 ? v.slice(idx + 6) : v);
+    };
+    $screen.appendChild(paste);
+    $screen.appendChild(el('<p class="muted small" style="margin:.5rem 0 1rem">Los mensajes y el avance viajan dentro del enlace: comparte el tuyo al terminar de estudiar y abre el que te manden. En el mismo dispositivo se actualiza solo.</p>'));
+
+    // --- Chat / retos ---
+    const chatCard = el('<div class="card"><h2>💬 Mensajes y retos</h2></div>');
+    const list = el('<div class="chat-list"></div>');
+    chatCard.appendChild(list);
+    const allMsgs = loadMessages();
+    const msgs = allMsgs.slice(-50);
+    if (!msgs.length) {
+      list.appendChild(el('<p class="muted small">Todavía no hay mensajes. Escríbele algo en inglés a ' + esc(partnerName()) + ' o mándale un reto de escritura. 📝</p>'));
+    }
+    msgs.forEach(m => {
+      const mine = m.from === currentUser;
+      const isTask = m.type === 'task';
+      let inner = '';
+      if (isTask) inner += '<div class="task-tag">🎯 Reto de escritura</div>';
+      if (m.ref) {
+        const orig = allMsgs.find(x => x.id === m.ref);
+        if (orig) inner += '<div class="quoted">' + esc(String(orig.text).slice(0, 90)) + '</div>';
+      }
+      inner += '<div>' + esc(m.text) + '</div>' +
+        '<div class="meta">' + esc(m.from) + ' · ' + esc(m.d || '') + (mine ? '' : ' ' + '<button class="speak-btn" data-speak="' + esc(m.text) + '">🔊</button>') + '</div>';
+      const b = el('<div class="bubble ' + (mine ? 'me' : 'them') + (isTask ? ' task-bubble' : '') + '">' + inner + '</div>');
+      if (isTask && !mine && !allMsgs.some(r => r.ref === m.id && r.from === currentUser)) {
+        const answer = el('<button class="btn secondary" style="margin-top:.4rem;padding:.5rem">✍️ Responder este reto (+15 XP)</button>');
+        answer.onclick = () => {
+          replyTo = m.id;
+          input.placeholder = 'Write your answer in English...';
+          input.focus();
+          hint.textContent = 'Respondiendo al reto: ' + String(m.text).slice(0, 60) + '…';
+          hint.classList.remove('hidden');
+        };
+        b.appendChild(answer);
+      }
+      list.appendChild(b);
+    });
+
+    let replyTo = null;
+    const hint = el('<div class="muted small hidden" style="margin-bottom:.3rem"></div>');
+    chatCard.appendChild(hint);
+    const inputRow = el('<div class="row"></div>');
+    const input = el('<input class="text-answer" style="margin-bottom:0;flex:1" type="text" placeholder="Escribe en inglés para practicar...">');
+    const send = el('<button class="btn" style="width:auto;padding:.85rem 1rem">➤</button>');
+    inputRow.appendChild(input); inputRow.appendChild(send);
+    chatCard.appendChild(inputRow);
+
+    function pushMessage(text, type, ref) {
+      saveMessages(mergeMessages(loadMessages(), [{
+        id: Date.now() + '-' + currentUser, from: currentUser,
+        text: text, type: type, ref: ref || undefined, d: today(),
+      }]));
+      const pr = loadProgress();
+      if (ref) addXP(pr, 15); else touchStreak(pr);
+      pr.history.push({ d: today(), type: 'message' });
+      saveProgress(pr);
+      routes.duo();
+      if (confirm('Mensaje guardado ✔. ¿Compartir ahora tu avance para que le llegue a ' + partnerName() + '? (Si usan el mismo aparato, di «Cancelar»: ya le aparece.)')) shareSnapshot();
+    }
+    send.onclick = () => {
+      const v = input.value.trim();
+      if (!v) return;
+      const isCustomTask = v.startsWith('🎯') && !replyTo;
+      pushMessage(isCustomTask ? v.replace(/^🎯\s*/, '') : v, isCustomTask ? 'task' : 'msg', replyTo);
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') send.onclick(); });
+
+    const taskBtn = el('<button class="btn secondary" style="margin-top:.6rem">🎯 Enviar un reto de escritura</button>');
+    taskBtn.onclick = () => {
+      taskBtn.remove();
+      const box = el('<div style="margin-top:.6rem"></div>');
+      box.appendChild(el('<div class="muted small" style="margin-bottom:.4rem">Elige un reto para ' + esc(partnerName()) + ' (o escribe el tuyo en el campo de arriba empezando con 🎯):</div>'));
+      CHALLENGES.forEach(c => {
+        const o = el('<button class="option" style="font-size:.85rem;padding:.6rem .8rem">' + esc(c) + '</button>');
+        o.onclick = () => pushMessage(c, 'task');
+        box.appendChild(o);
+      });
+      chatCard.appendChild(box);
+    };
+    chatCard.appendChild(taskBtn);
+    $screen.appendChild(chatCard);
   };
 
   /* ---------- Examen de nivel ---------- */
