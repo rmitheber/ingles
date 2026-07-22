@@ -879,6 +879,248 @@
     $screen.appendChild(chatCard);
   };
 
+  /* ---------- Hablar (Speaking): reconocimiento de voz + feedback ---------- */
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const lastSpeakingQ = {};
+
+  function pickQuestion(cat) {
+    const pool = cat.questions;
+    let q;
+    do { q = pool[Math.floor(Math.random() * pool.length)]; }
+    while (pool.length > 1 && q === lastSpeakingQ[cat.id]);
+    lastSpeakingQ[cat.id] = q;
+    return q;
+  }
+
+  routes.speaking = function () {
+    setChrome('Hablar', 'speaking');
+    $screen.innerHTML = '';
+    $screen.appendChild(el('<div class="card"><h2>🎤 Practica tu speaking</h2>' +
+      '<p class="muted">Elige un tema: te hago una pregunta, la respondes en voz alta y te digo qué errores de gramática u ortografía cometiste.</p></div>'));
+
+    const phrasesCard = el('<div class="card level-card">' +
+      '<div class="level-badge acad">📇</div>' +
+      '<div class="level-info"><h2>Frases y modal verbs</h2>' +
+      '<div class="muted small">' + window.DATA_PHRASES.length + ' tarjetas para memorizar, con ejemplos</div></div>' +
+      '<div class="chevron">›</div></div>');
+    phrasesCard.onclick = () => go('phrases');
+    $screen.appendChild(phrasesCard);
+
+    $screen.appendChild(el('<div class="muted" style="margin:.9rem 0 .5rem;font-weight:700">🗣️ O elige un tema para hablar</div>'));
+    window.DATA_SPEAKING.forEach(cat => {
+      const c = el('<div class="card level-card">' +
+        '<div class="level-badge acad">' + esc(cat.icon) + '</div>' +
+        '<div class="level-info"><h2>' + esc(cat.name) + '</h2>' +
+        '<div class="muted small">' + cat.questions.length + ' preguntas</div></div>' +
+        '<div class="chevron">›</div></div>');
+      c.onclick = () => go('speak/' + cat.id);
+      $screen.appendChild(c);
+    });
+    const rnd = el('<button class="btn secondary">🎲 Pregunta al azar (cualquier tema)</button>');
+    rnd.onclick = () => go('speak/random');
+    $screen.appendChild(rnd);
+    if (!SpeechRec) {
+      $screen.appendChild(el('<div class="tipbox">⚠️ Tu navegador no puede grabar y transcribir tu voz automáticamente (pasa en iPhone, incluso con Chrome, porque ahí todos los navegadores usan el mismo motor que Safari). Aún puedes escribir tu respuesta para revisar la gramática, o probar esta sección desde un Android o una computadora con Chrome.</div>'));
+    }
+  };
+
+  routes.phrases = function () {
+    setChrome('Frases y modal verbs', 'speaking');
+    const p = loadProgress();
+    touchStreak(p);
+    saveProgress(p);
+    const deck = shuffle(window.DATA_PHRASES);
+    let i = 0;
+    $screen.innerHTML = '';
+    const wrap = el('<div></div>');
+    $screen.appendChild(wrap);
+    const back = el('<button class="btn ghost" style="margin-top:.6rem">← Volver a Hablar</button>');
+    back.onclick = () => go('speaking');
+
+    function show() {
+      wrap.innerHTML = '';
+      const card = deck[i];
+      wrap.appendChild(el('<div class="deck-count">Tarjeta ' + (i + 1) + ' de ' + deck.length + ' · ' + esc(card.cat) + '</div>'));
+      const fc = el('<div class="flashcard">' +
+        '<div class="word">' + esc(card.en) + ' ' + speakBtn(card.en) + '</div>' +
+        '<div class="tap-hint">Toca para ver la traducción y un ejemplo</div></div>');
+      wrap.appendChild(fc);
+      fc.onclick = () => {
+        fc.onclick = null;
+        fc.innerHTML = '<div class="word">' + esc(card.en) + ' ' + speakBtn(card.en) + '</div>' +
+          '<div class="translation">' + esc(card.es) + '</div>' +
+          '<div class="example-sm">' + esc(card.ex) + ' ' + speakBtn(card.ex) + '</div>';
+        const next = el('<button class="btn" style="margin-top:.8rem">Siguiente ▶</button>');
+        next.onclick = () => { i = (i + 1) % deck.length; show(); };
+        wrap.appendChild(next);
+      };
+    }
+    show();
+    $screen.appendChild(back);
+  };
+
+  routes.speak = function (args) {
+    const catId = args[0];
+    const cat = catId === 'random'
+      ? { id: 'random', name: '🎲 Pregunta al azar', questions: window.DATA_SPEAKING.flatMap(c => c.questions) }
+      : window.DATA_SPEAKING.find(c => c.id === catId) || window.DATA_SPEAKING[0];
+    renderSpeakingQuestion(cat);
+  };
+
+  function renderSpeakingQuestion(cat) {
+    setChrome(cat.name, 'speaking');
+    const q = pickQuestion(cat);
+    $screen.innerHTML = '';
+    $screen.appendChild(el('<div class="card"><div class="muted small">Responde en inglés, en voz alta:</div>' +
+      '<div class="q-text" style="margin-top:.3rem">' + esc(q) + ' ' + speakBtn(q) + '</div></div>'));
+
+    const micWrap = el('<div class="mic-wrap"></div>');
+    $screen.appendChild(micWrap);
+    const transcriptBox = el('<div class="transcript-box empty">Tu respuesta aparecerá aquí…</div>');
+    $screen.appendChild(transcriptBox);
+    const resultsBox = el('<div></div>');
+    $screen.appendChild(resultsBox);
+
+    const skip = el('<button class="btn ghost">🔁 Otra pregunta</button>');
+    skip.onclick = () => renderSpeakingQuestion(cat);
+    $screen.appendChild(skip);
+    const back = el('<button class="btn ghost">← Volver a Hablar</button>');
+    back.onclick = () => go('speaking');
+    $screen.appendChild(back);
+
+    if (SpeechRec) renderMicRecorder(micWrap, transcriptBox, resultsBox, cat);
+    else renderTypedFallback(micWrap, transcriptBox, resultsBox, cat);
+  }
+
+  function renderMicRecorder(micWrap, transcriptBox, resultsBox, cat) {
+    const btn = el('<button class="mic-btn">🎤</button>');
+    const label = el('<div class="mic-label">Toca para grabar tu respuesta</div>');
+    micWrap.appendChild(btn);
+    micWrap.appendChild(label);
+
+    let recognition = null, recording = false, finished = false, finalTranscript = '', startTime = 0;
+
+    btn.onclick = () => {
+      if (recording) { recognition.stop(); return; }
+      finalTranscript = '';
+      finished = false;
+      transcriptBox.textContent = '';
+      transcriptBox.classList.remove('empty');
+      resultsBox.innerHTML = '';
+      recognition = new SpeechRec();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.onresult = e => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) finalTranscript += r[0].transcript + ' ';
+          else interim += r[0].transcript;
+        }
+        transcriptBox.textContent = (finalTranscript + interim).trim() || '…';
+      };
+      recognition.onerror = e => {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          alert('Necesito permiso para usar el micrófono. Revisa los permisos del navegador para este sitio.');
+        }
+      };
+      recognition.onend = () => {
+        recording = false;
+        btn.classList.remove('recording');
+        btn.textContent = '🎤';
+        label.textContent = 'Toca para grabar tu respuesta';
+        if (finished) return;
+        finished = true;
+        finishSpeakingAttempt(cat, finalTranscript.trim(), (Date.now() - startTime) / 1000, resultsBox);
+      };
+      recognition.start();
+      startTime = Date.now();
+      recording = true;
+      btn.classList.add('recording');
+      btn.textContent = '⏹';
+      label.textContent = 'Grabando… toca para detener';
+    };
+  }
+
+  function renderTypedFallback(micWrap, transcriptBox, resultsBox, cat) {
+    transcriptBox.remove();
+    micWrap.appendChild(el('<div class="muted small" style="margin-bottom:.5rem">Este navegador no puede transcribir tu voz automáticamente. Dila en voz alta igual, y luego escribe aquí lo que dijiste:</div>'));
+    const ta = el('<textarea class="text-answer" rows="4" style="resize:vertical" placeholder="Write your answer in English..."></textarea>');
+    micWrap.appendChild(ta);
+    const check = el('<button class="btn">Revisar mi respuesta</button>');
+    micWrap.appendChild(check);
+    check.onclick = () => {
+      const text = ta.value.trim();
+      if (!text) return;
+      finishSpeakingAttempt(cat, text, null, resultsBox);
+    };
+  }
+
+  function finishSpeakingAttempt(cat, transcript, durationSec, resultsBox) {
+    resultsBox.innerHTML = '';
+    if (!transcript) {
+      resultsBox.appendChild(el('<div class="tipbox">No detecté ninguna respuesta. Intenta de nuevo, habla claro y cerca del micrófono.</div>'));
+      return;
+    }
+    const words = transcript.split(/\s+/).filter(Boolean);
+    const fillerMatches = transcript.match(/\b(um+|uh+|erm+)\b/gi) || [];
+    resultsBox.appendChild(el('<div class="card"><h3>📝 Lo que dijiste</h3><p>' + esc(transcript) + '</p></div>'));
+
+    if (durationSec) {
+      const wpm = durationSec > 0 ? Math.round(words.length / (durationSec / 60)) : 0;
+      resultsBox.appendChild(el('<div class="speaking-stats">' +
+        '<div class="stat-box"><div class="num">' + Math.round(durationSec) + 's</div><div class="lbl">duración</div></div>' +
+        '<div class="stat-box"><div class="num">' + wpm + '</div><div class="lbl">palabras/min</div></div>' +
+        '<div class="stat-box"><div class="num">' + fillerMatches.length + '</div><div class="lbl">muletillas</div></div>' +
+        '</div>'));
+    }
+
+    const loading = el('<div class="card"><p class="muted">🔎 Revisando gramática y ortografía…</p></div>');
+    resultsBox.appendChild(loading);
+
+    checkGrammar(transcript).then(matches => {
+      loading.remove();
+      resultsBox.appendChild(renderIssues(transcript, matches));
+      const p = loadProgress();
+      addXP(p, 15);
+      p.history.push({ d: today(), type: 'speaking', cat: cat.id, issues: matches.length });
+      saveProgress(p);
+    }).catch(() => {
+      loading.innerHTML = '<p class="muted">⚠️ No se pudo conectar con el revisor gramatical. Revisa tu conexión e intenta de nuevo.</p>';
+    });
+  }
+
+  function checkGrammar(text) {
+    const body = new URLSearchParams({ text: text, language: 'en-US' });
+    return fetch('https://api.languagetool.org/v2/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    }).then(r => { if (!r.ok) throw new Error('bad response'); return r.json(); })
+      .then(data => data.matches || []);
+  }
+
+  function renderIssues(text, matches) {
+    if (!matches.length) {
+      return el('<div class="feedback ok"><div class="fb-title">✅ ¡Sin errores detectados!</div>Tu gramática y ortografía se ven bien en esta respuesta.</div>');
+    }
+    const wrap = el('<div><h3 style="margin-bottom:.5rem">✏️ ' + matches.length + ' cosa(s) para revisar</h3></div>');
+    matches.forEach(m => {
+      const isSpelling = /TYPOS|SPELL/i.test((m.rule && m.rule.category && m.rule.category.id) || '');
+      const before = esc(text.slice(Math.max(0, m.offset - 25), m.offset));
+      const bad = esc(text.slice(m.offset, m.offset + m.length));
+      const after = esc(text.slice(m.offset + m.length, m.offset + m.length + 25));
+      const suggestions = (m.replacements || []).slice(0, 3).map(r => r.value);
+      wrap.appendChild(el('<div class="issue-item ' + (isSpelling ? 'spelling' : 'grammar') + '">' +
+        '<div class="msg">' + (isSpelling ? '🔤' : '📐') + ' ' + esc(m.message) + '</div>' +
+        '<div class="ctx">…' + before + '<mark>' + bad + '</mark>' + after + '…</div>' +
+        (suggestions.length ? '<div class="sugg">Sugerencia: <b>' + suggestions.map(esc).join('</b>, <b>') + '</b></div>' : '') +
+        '</div>'));
+    });
+    return wrap;
+  }
+
   /* ---------- Examen de nivel ---------- */
   routes.test = function () {
     setChrome('Examen de nivel', 'home');
@@ -935,6 +1177,7 @@
     const attempts = Object.values(p.lessons).reduce((s, l) => s + l.attempts, 0);
     const doneLessons = Object.values(p.lessons).filter(l => l.done).length;
     const activeDays = new Set(p.history.map(h => h.d)).size;
+    const speakingSessions = p.history.filter(h => h.type === 'speaking').length;
 
     $screen.innerHTML = '';
     $screen.appendChild(el('<div class="stats-grid">' +
@@ -944,6 +1187,7 @@
       '<div class="stat-card"><div class="num">' + attempts + '</div><div class="lbl">Prácticas hechas</div></div>' +
       '<div class="stat-card"><div class="num">' + wordsLearned + '</div><div class="lbl">Palabras aprendidas</div></div>' +
       '<div class="stat-card"><div class="num">' + wordsMastered + '</div><div class="lbl">Palabras dominadas</div></div>' +
+      '<div class="stat-card"><div class="num">🎤 ' + speakingSessions + '</div><div class="lbl">Sesiones de speaking</div></div>' +
       '</div>'));
 
     LEVELS.forEach(level => {
